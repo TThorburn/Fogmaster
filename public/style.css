@@ -1,0 +1,42 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #14161a; color: #e8eaed; }
+header { padding: 10px 16px; background: #0c0e11; border-bottom: 1px solid #2a2e35; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+header strong { font-size: 15px; letter-spacing: 0.4px; }
+main { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
+
+.panel { width: 300px; flex-shrink: 0; position: sticky; top: 14px; max-height: calc(100vh - 90px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.playTools, details { background: #1d2026; border: 1px solid #2e333b; border-radius: 10px; padding: 12px; }
+summary { cursor: pointer; font-weight: 600; font-size: 14px; user-select: none; padding: 2px 0; color: #cfd6e0; }
+summary:hover { color: #fff; }
+details[open] summary { margin-bottom: 8px; border-bottom: 1px solid #2e333b; padding-bottom: 8px; }
+
+label { display: block; margin-top: 8px; font-size: 12px; color: #9aa3af; }
+input, button, select { width: 100%; margin-top: 6px; padding: 8px 10px; border-radius: 7px; border: 1px solid #3a4048; background: #262a31; color: #e8eaed; font-size: 13px; }
+input[type="range"] { padding: 0; border: none; background: transparent; accent-color: #4c9aff; }
+button { cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+button:hover { background: #323844; }
+button.active { background: #2563a8; border-color: #4c9aff; }
+button.danger { background: #2c2023; border-color: #5a3238; color: #f0b3ba; }
+button.danger:hover { background: #3d262b; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+
+.canvasWrap { overflow: auto; flex: 1; max-height: calc(100vh - 90px); border: 1px solid #2e333b; border-radius: 10px; background: #050505; }
+canvas { display: block; }
+
+.player { overflow: hidden; background: #000; }
+.player main { padding: 0; display: block; }
+.player .canvasWrap { max-width: 100vw; max-height: 100vh; width: 100vw; height: 100vh; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.player canvas { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+
+.small { color: #8b93a0; font-size: 12px; line-height: 1.4; margin: 8px 0 0; }
+.links a { color: #7db8ff; text-decoration: none; }
+.links a:hover { text-decoration: underline; }
+#saveStatus { color: #8b93a0; font-size: 12px; }
+
+input[type="file"] { padding: 6px; cursor: pointer; }
+input[type="file"]::file-selector-button {
+  background: #323844; color: #e8eaed; border: 1px solid #3a4048;
+  border-radius: 6px; padding: 6px 12px; margin-right: 10px;
+  font-size: 13px; cursor: pointer; transition: background 0.12s;
+}
+input[type="file"]::file-selector-button:hover { background: #3d4452; }
