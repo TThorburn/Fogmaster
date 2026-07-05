@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>DND Fog of War - DM</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header><strong>DM Fog of War Control</strong><span id="saveStatus"></span></header>
+<main>
+  <section class="panel">
+    <div class="playTools">
+      <div class="row">
+        <button id="modeReveal" class="active" type="button">🖌 Reveal</button>
+        <button id="modeHide" type="button">🌫 Hide</button>
+      </div>
+      <div class="row">
+        <button id="revealAll" type="button">Reveal all</button>
+        <button id="hideAll" type="button">Hide all</button>
+      </div>
+      <label>DM fog visibility</label>
+      <input id="dmFogOpacity" type="range" min="0" max="80" value="35" />
+      <button id="saveNow" type="button">💾 Save now</button>
+    </div>
+
+    <details open>
+      <summary>Fog groups</summary>
+      <div class="row">
+        <button id="modeGroup" type="button">Group select</button>
+        <button id="clearGroupSelection" type="button">Clear</button>
+      </div>
+      <input id="groupName" type="text" placeholder="New group name" />
+      <button id="saveGroup" type="button">Save selected group</button>
+      <select id="groupSelect"></select>
+      <div class="row">
+        <button id="revealGroup" type="button">Reveal group</button>
+        <button id="hideGroup" type="button">Hide group</button>
+      </div>
+      <button id="deleteGroup" class="danger" type="button">Delete group</button>
+      <p class="small">Group select → paint a room's squares → save. Reveal/hide the whole room later.</p>
+    </details>
+
+    <details>
+      <summary>Maps</summary>
+      <select id="mapSelect"></select>
+      <input id="mapName" type="text" placeholder="Rename current map" />
+      <button id="renameMapBtn" type="button">Rename map</button>
+      <form id="uploadForm">
+        <input id="newMapName" name="name" type="text" placeholder="New map name (optional)" />
+        <input type="file" name="map" accept="image/*" required />
+        <button type="submit">Upload as new map</button>
+      </form>
+      <button id="deleteMapBtn" class="danger" type="button">Delete map</button>
+    </details>
+
+    <details>
+      <summary>Grid setup</summary>
+      <label>Grid size (px)</label>
+      <input id="gridSize" type="number" value="50" min="10" max="250" />
+      <div class="row">
+        <div><label>Columns</label><input id="cols" type="number" value="20" min="1" max="200" /></div>
+        <div><label>Rows</label><input id="rows" type="number" value="12" min="1" max="200" /></div>
+      </div>
+      <button id="applySettings" class="danger" type="button">Apply grid &amp; reset fog</button>
+      <p class="small">Left-drag paints. Right-click switches to hide.</p>
+      <p class="small links"><a href="/player.html" target="_blank">Open player view ↗</a></p>
+    </details>
+  </section>
+  <div class="canvasWrap"><canvas id="board"></canvas></div>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared.js"></script>
+<script>
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+let paintValue = 0;
+let toolMode = 'paint';
+let isPainting = false;
+let lastPainted = '';
+let selectedGroupCells = new Set();
+
+function dmOpacity() { return Number(document.getElementById('dmFogOpacity').value) / 100; }
+function redraw() { fitCanvas(canvas); drawBase(ctx, canvas, 'dm', { dmFogOpacity: dmOpacity(), showGrid: true, selectedCells: selectedGroupCells }); }
+function updateSaveStatus() { document.getElementById('saveStatus').textContent = state ? formatSavedTime(state.updatedAt) : ''; }
+function refreshGroupList() {
+  const select = document.getElementById('groupSelect');
+  if (!select || !state) return;
+  select.innerHTML = '';
+  const groups = state.groups || [];
+  if (!groups.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No groups saved';
+    select.appendChild(opt);
+    return;
+  }
+  groups.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g.id;
+    opt.textContent = `${g.name} (${g.cells.length} squares)`;
+    select.appendChild(opt);
+  });
+}
+
+function refreshMapList() {
+  const select = document.getElementById('mapSelect');
+  if (!state || !state.maps) return;
+  select.innerHTML = '';
+  state.maps.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name || 'Untitled map';
+    select.appendChild(opt);
+  });
+  select.value = state.currentMapId;
+  document.getElementById('mapName').value = state.name || '';
+  refreshGroupList();
+}
+
+
+function setMode(value) {
+  toolMode = 'paint';
+  paintValue = value;
+  document.getElementById('modeReveal').classList.toggle('active', value === 0);
+  document.getElementById('modeHide').classList.toggle('active', value === 1);
+  document.getElementById('modeGroup').classList.remove('active');
+}
+
+function setGroupMode() {
+  toolMode = 'group';
+  document.getElementById('modeReveal').classList.remove('active');
+  document.getElementById('modeHide').classList.remove('active');
+  document.getElementById('modeGroup').classList.add('active');
+}
+
+function addGroupCell(row, col) {
+  if (!state || row < 0 || col < 0 || row >= state.rows || col >= state.cols) return;
+  selectedGroupCells.add(`${row},${col}`);
+  redraw();
+}
+
+function tileFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  return { col: Math.floor(x / state.gridSize), row: Math.floor(y / state.gridSize) };
+}
+
+function paint(e) {
+  if (!state) return;
+  const { row, col } = tileFromEvent(e);
+  if (toolMode === 'group') {
+    const key = `${row},${col},group`;
+    if (key === lastPainted) return;
+    lastPainted = key;
+    addGroupCell(row, col);
+    return;
+  }
+  const key = `${row},${col},${paintValue}`;
+  if (key === lastPainted) return;
+  lastPainted = key;
+  socket.emit('paintTile', { row, col, value: paintValue });
+}
+
+socket.on('state', next => {
+  state = next;
+  document.getElementById('gridSize').value = state.gridSize;
+  document.getElementById('cols').value = state.cols;
+  document.getElementById('rows').value = state.rows;
+  loadMap(redraw);
+  updateSaveStatus();
+  refreshMapList();
+});
+
+socket.on('tile', ({ row, col, value, updatedAt }) => {
+  if (!state) return;
+  state.fog[row][col] = value;
+  if (updatedAt) state.updatedAt = updatedAt;
+  redraw();
+  updateSaveStatus();
+});
+
+canvas.addEventListener('mousedown', e => { isPainting = true; lastPainted = ''; paint(e); });
+canvas.addEventListener('mousemove', e => { if (isPainting) paint(e); });
+window.addEventListener('mouseup', () => { isPainting = false; lastPainted = ''; });
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); setMode(1); paint(e); });
+
+document.getElementById('dmFogOpacity').addEventListener('input', redraw);
+document.getElementById('modeReveal').onclick = () => setMode(0);
+document.getElementById('modeHide').onclick = () => setMode(1);
+document.getElementById('modeGroup').onclick = () => setGroupMode();
+document.getElementById('clearGroupSelection').onclick = () => { selectedGroupCells.clear(); redraw(); };
+document.getElementById('saveGroup').onclick = async () => {
+  const cells = [...selectedGroupCells].map(k => { const [row, col] = k.split(',').map(Number); return { row, col }; });
+  if (!cells.length) return alert('Select at least one square for the group.');
+  const name = document.getElementById('groupName').value || 'Fog group';
+  await fetch('/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, cells })
+  });
+  selectedGroupCells.clear();
+  document.getElementById('groupName').value = '';
+};
+document.getElementById('revealGroup').onclick = async () => {
+  const id = document.getElementById('groupSelect').value;
+  if (!id) return;
+  await fetch('/paint-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value: 0 }) });
+};
+document.getElementById('hideGroup').onclick = async () => {
+  const id = document.getElementById('groupSelect').value;
+  if (!id) return;
+  await fetch('/paint-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value: 1 }) });
+};
+document.getElementById('deleteGroup').onclick = async () => {
+  const id = document.getElementById('groupSelect').value;
+  if (!id) return;
+  if (!confirm('Delete this fog group? This does not delete the map.')) return;
+  await fetch('/delete-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+};
+
+document.getElementById('uploadForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = new FormData(e.target);
+  await fetch('/upload', { method: 'POST', body: form });
+});
+
+document.getElementById('applySettings').addEventListener('click', async () => {
+  if (!confirm('This resets all fog for the current map. Continue?')) return;
+  await fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      gridSize: document.getElementById('gridSize').value,
+      cols: document.getElementById('cols').value,
+      rows: document.getElementById('rows').value
+    })
+  });
+});
+
+document.getElementById('hideAll').onclick = () => socket.emit('hideAll');
+document.getElementById('revealAll').onclick = () => socket.emit('revealAll');
+document.getElementById('saveNow').onclick = async () => { await fetch('/save', { method: 'POST' }); };
+
+document.getElementById('mapSelect').addEventListener('change', async () => {
+  await fetch('/select-map', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: document.getElementById('mapSelect').value })
+  });
+});
+
+document.getElementById('renameMapBtn').onclick = async () => {
+  await fetch('/rename-map', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: document.getElementById('mapName').value })
+  });
+};
+
+document.getElementById('deleteMapBtn').onclick = async () => {
+  if (!confirm('Delete this saved map and its fog state?')) return;
+  await fetch('/delete-map', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: document.getElementById('mapSelect').value })
+  });
+};
+</script>
+</body>
+</html>

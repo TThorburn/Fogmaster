@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Behind the Screen</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="welcome">
+  <div class="welcomeWrap">
+    <h1>Behind the Screen</h1>
+    <p class="tagline">The DM paints, the players discover.</p>
+
+    <div class="roleCards">
+      <a class="roleCard" href="/player.html">
+        <div class="roleIcon">🗺</div>
+        <h2>Player</h2>
+        <p>Watch the map unfold as your party explores.</p>
+      </a>
+      <button class="roleCard" id="dmCard" type="button">
+        <div class="roleIcon">🎲</div>
+        <h2>Dungeon Master</h2>
+        <p>Control the fog, the maps, and the mystery.</p>
+      </button>
+    </div>
+
+    <div class="authBox" id="authBox" hidden>
+      <h3 id="authTitle">DM password</h3>
+      <p class="small" id="authHint"></p>
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <input id="password2" type="password" placeholder="Confirm password" autocomplete="new-password" hidden />
+      <button id="authSubmit" type="button">Enter</button>
+      <p class="authError" id="authError"></p>
+    </div>
+  </div>
+
+  <script>
+    let needsSetup = false;
+
+    async function status() {
+      const r = await fetch('/auth/status');
+      return r.json();
+    }
+
+    document.getElementById('dmCard').onclick = async () => {
+      const st = await status();
+      if (st.dm) { location.href = '/dm.html'; return; }
+      needsSetup = !st.setup;
+      document.getElementById('authBox').hidden = false;
+      document.getElementById('password2').hidden = !needsSetup;
+      document.getElementById('authTitle').textContent = needsSetup ? 'Create your DM password' : 'DM password';
+      document.getElementById('authHint').textContent = needsSetup
+        ? 'First time setup — this password protects the DM screen and is saved on the server.'
+        : 'Enter the DM password to continue.';
+      document.getElementById('authSubmit').textContent = needsSetup ? 'Create & enter' : 'Enter';
+      document.getElementById('password').focus();
+    };
+
+    async function submit() {
+      const pw = document.getElementById('password').value;
+      const err = document.getElementById('authError');
+      err.textContent = '';
+      if (needsSetup && pw !== document.getElementById('password2').value) {
+        err.textContent = 'Passwords do not match.';
+        return;
+      }
+      const r = await fetch(needsSetup ? '/auth/setup' : '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+      const data = await r.json();
+      if (r.ok) location.href = '/dm.html';
+      else err.textContent = data.error || 'Something went wrong.';
+    }
+
+    document.getElementById('authSubmit').onclick = submit;
+    document.getElementById('authBox').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  </script>
+</body>
+</html>
